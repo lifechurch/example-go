@@ -1,0 +1,52 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: $CI_ENVIRONMENT_SLUG
+  namespace: $KUBE_NAMESPACE
+  labels:
+    app: $CI_ENVIRONMENT_SLUG
+    pipeline_id: "$CI_PIPELINE_ID"
+    build_id: "$CI_JOB_ID"
+spec:
+  selector:
+    matchLabels:
+      app: $CI_ENVIRONMENT_SLUG
+      name: $CI_ENVIRONMENT_SLUG
+  template:
+    metadata:
+      labels:
+        name: $CI_ENVIRONMENT_SLUG
+        app: $CI_ENVIRONMENT_SLUG
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: $KUBE_NAMESPACE-$CI_ENVIRONMENT_SLUG
+        image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: $PORT
+        resources:
+          limits:
+            cpu: "1"
+            memory: "128Mi"
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: $PORT
+            scheme: HTTP
+            httpHeaders:
+              - name: Host
+                value: 127.0.0.1
+          initialDelaySeconds: 5
+          timeoutSeconds: 2
+          periodSeconds: 3
+          failureThreshold: 10
+        #env:
+        #  - name: SUPERSECRETTHING
+        #    valueFrom:
+        #      secretKeyRef:
+        #        name: $KUBE_NAMESPACE-secrets-$STAGE
+        #        key: SUPERSECRETTHING
+      imagePullSecrets:
+        - name: gitlab-registry

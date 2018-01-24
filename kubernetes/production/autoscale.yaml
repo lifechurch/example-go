@@ -1,0 +1,15 @@
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app: $KUBE_NAMESPACE
+  name: $KUBE_NAMESPACE
+  namespace: $KUBE_NAMESPACE
+spec:
+  maxReplicas: 4
+  minReplicas: 2
+  scaleTargetRef:
+    kind: Deployment
+    name: $CI_ENVIRONMENT_SLUG
+  targetCPUUtilizationPercentage: 70
