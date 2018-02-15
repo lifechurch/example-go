@@ -15,4 +15,4 @@ spec:
     protocol: TCP
     name: http
   selector:
-    name: $CI_ENVIRONMENT_SLUG
+    app: $CI_ENVIRONMENT_SLUG

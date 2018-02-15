@@ -11,5 +11,5 @@ spec:
   minReplicas: 2
   scaleTargetRef:
     kind: Deployment
-    name: $CI_ENVIRONMENT_SLUG
+    name: production
   targetCPUUtilizationPercentage: 70
