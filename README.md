@@ -46,12 +46,14 @@ stages:
   - dockerbuild
   - review
   - staging
+  - canary
   - production
+  - destroy-canary
   - taglatest
 ```
 This outlines the basic workflow of this pipeline. The process starts by committing code to a branch. We start with building the Go project in the build stage and saving the compiled artifacts in GitLab. In the dockerbuild stage, we build a container using those artifacts. In the review stage, we create a deployment in Kubernetes just for the current branch. Once the branch is merged into master and deleted, we delete the review-app deployment and the pipeline will start again at the beginning, but for the master branch.
 
-For the master branch, we will compile the Go code again in build, followed by building the Docker container in the dockerbuild stage. This time, it will skip the review stage, and deploy your master branch out as staging. When you want to deploy to production, just go to CI/CD->Pipelines and click the big play button to deploy out to production. Once it deploys to production, it will tag the docker image it just deployed with the latest tag.
+For the master branch, we will compile the Go code again in build, followed by building the Docker container in the dockerbuild stage. This time, it will skip the review stage, and deploy your master branch out as staging. Next up is a canary deploy that you have to initiate manually from CI/CD->Pipelines. The canary deploy is a special stage that will only deploy manifests without the track label set to stable, so make sure your normal deployment manifest is tagged as such. Once you've verified the canary release is good, you can manually deploy to production by hitting that big play button again, and selecting production. Once it deploys to production, it will destroy the canary instances and then tag the docker image it just deployed with the latest tag.
 
 ```
 go_build:
@@ -96,16 +98,19 @@ metadata:
     app: $CI_ENVIRONMENT_SLUG
     pipeline_id: "$CI_PIPELINE_ID"
     build_id: "$CI_JOB_ID"
+    track: stable
 spec:
   selector:
     matchLabels:
       app: $CI_ENVIRONMENT_SLUG
       name: $CI_ENVIRONMENT_SLUG
+      track: stable
   template:
     metadata:
       labels:
         name: $CI_ENVIRONMENT_SLUG
         app: $CI_ENVIRONMENT_SLUG
+        track: stable
     spec:
       terminationGracePeriodSeconds: 60
       containers:
@@ -139,7 +144,7 @@ spec:
       imagePullSecrets:
         - name: gitlab-registry
 ```
-Most important to notice is our use of environment variables in the manifest file, stuff like ```$CI_ENVIRONMENT_SLUG``` and ```$PORT```.  What happens during the deploy process is that [k8s-deploy-helper](https://github.com/lifechurch/k8s-deploy-helper) will take all the files in the kubernetes directory and run them through the envsubst program which will replace all the environment variables with their values. So, for example, because you said a GitLab variable named ```$PORT``` to 5555 earlier, every instance of $PORT in this file will be replaced with the value ```5555``` before the manifest is sent to Kubernetes. In the manifest, we use variables like $CI_ENVIRONMENT_SLUG as the name of the deployment so that when the different build stages run, they get a unique name before being sent to Kubernetes. This lets you build one deployment file, but use it to maintain separate deployments for review apps, staging and production in Kubernetes. These templates also include the metadata GitLab is looking for in order to find your containers for deploy boards and for connecting to a bash shell in the container through GitLab.
+Most important to notice is our use of environment variables in the manifest file, stuff like ```$CI_ENVIRONMENT_SLUG``` and ```$PORT```.  What happens during the deploy process is that [k8s-deploy-helper](https://github.com/lifechurch/k8s-deploy-helper) will take all the files in the kubernetes directory and run them through the envsubst program which will replace all the environment variables with their values. So, for example, because you said a GitLab variable named ```$PORT``` to 5555 earlier, every instance of $PORT in this file will be replaced with the value ```5555``` before the manifest is sent to Kubernetes. In the manifest, we use variables like $CI_ENVIRONMENT_SLUG as the name of the deployment so that when the different build stages run, they get a unique name before being sent to Kubernetes. This lets you build one deployment file, but use it to maintain separate deployments for review apps, staging and production in Kubernetes. These templates also include the metadata GitLab is looking for in order to find your containers for deploy boards and for connecting to a bash shell in the container through GitLab. Also of particular note is track label being set to stable. Make sure you set this label for your normal deployments, otherwise they will get applied in the canary stage.
 
 You'll see the same type of logic in service.yaml which sets up a service for each stage (review, staging, production) and ingress.yaml, which sets up a unique ingress host for each stage.  will do this for every manifest file in the root of the kubernetes folder.
 
@@ -216,6 +221,24 @@ staging:
 ```
 This deploys the master branch to staging. Nothing of particular note here other than ```environment:url```
 
+
+```
+canary:
+  stage: canary
+  dependencies: []
+  script:
+    - command deploy
+  environment:
+    name: production
+    url: http://$KUBE_DOMAIN
+  when: manual
+  allow_failure: false
+  only:
+    - master
+```
+Canary is a very different stage because of the logic. Take a look at the canary-deployment.yaml file and you'll notice it's a little bit different than the deployment.yaml file. You'll see we replaced $CI_ENVIRONMENT_SLUG with canary for quite a bit of options, as well as swapping out stable for canary. What happens in this stage, is that the script detects we're in a canary deploy situation, sets a variable, and then overrides $CI_JOB_STAGE to be production rather than canary. This allows for the application of production manifests in the canary stage. Additionally, the deployer looks at canary-deployment.yaml, notices that metadata.label.track is set to canary, and applies that manifest. It also looks at deployment.yaml, looks at metadata.label.track and notices that it is set to stable, so it does not apply that deployment. Making sure you label your deployments with track properly is key, otherwise your pipelines will accidentally deploy manifests you don't want it to.
+
+
 ```
 production:
   stage: production
@@ -230,6 +253,17 @@ production:
   only:
     - master
 
+destroy-canary:
+  stage: destroy-canary
+  dependencies: []
+  allow_failure: false
+  environment:
+    name: production  
+  script:
+    - command destroy-canary
+  only:
+    - master
+
 taglatest:
   stage: taglatest
   dependencies: []
@@ -239,7 +273,7 @@ taglatest:
   only:
     - master
 ```
-Production works exactly like all the other stages as far as [k8s-deploy-helper](https://github.com/lifechurch/k8s-deploy-helper) is concerned. In this example however, we made deploying to production a manual job. Once production finishes, we tag the docker image that just got rolled out to production as latest.
+Production works exactly like all the other stages as far as [k8s-deploy-helper](https://github.com/lifechurch/k8s-deploy-helper) is concerned. In this example however, we made deploying to production a manual job. Once production finishes, it destroys the canaries and then tags the docker image that just got rolled out to production as latest.
 
 That's pretty much it. Take a look at the k8s-deploy-helper source code if you have any questions, it should be fairly self explanatory. 
 
