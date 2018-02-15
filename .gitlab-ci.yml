@@ -1,5 +1,5 @@
 # Default Image
-image: quay.io/lifechurch/k8s-deploy-helper:1.0.0
+image: quay.io/lifechurch/k8s-deploy-helper:2.0.0
 
 variables:
   BINARY_NAME: $CI_PROJECT_NAME
@@ -19,7 +19,9 @@ stages:
   - dockerbuild
   - review
   - staging
+  - canary
   - production
+  - destroy-canary
   - taglatest
 
 go_build:
@@ -84,6 +86,19 @@ staging:
   only:
     - master
 
+canary:
+  stage: canary
+  dependencies: []
+  script:
+    - command deploy
+  environment:
+    name: production
+    url: http://$KUBE_DOMAIN
+  when: manual
+  allow_failure: false
+  only:
+    - master
+
 production:
   stage: production
   dependencies: []
@@ -94,6 +109,17 @@ production:
     url: http://$KUBE_DOMAIN
   when: manual
   allow_failure: false
+  only:
+    - master
+
+destroy-canary:
+  stage: destroy-canary
+  dependencies: []
+  allow_failure: false
+  environment:
+    name: production  
+  script:
+    - command destroy-canary
   only:
     - master
 
