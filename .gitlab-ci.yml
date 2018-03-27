@@ -1,5 +1,5 @@
 # Default Image
-image: quay.io/lifechurch/k8s-deploy-helper:2.0.0
+image: quay.io/lifechurch/k8s-deploy-helper:2.0.2
 
 variables:
   BINARY_NAME: $CI_PROJECT_NAME
