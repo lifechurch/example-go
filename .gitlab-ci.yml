@@ -1,0 +1,135 @@
+# Default Image
+image: quay.io/lifechurch/k8s-deploy-helper:3.0.0
+
+variables:
+  BINARY_NAME: $CI_PROJECT_NAME
+  KUBE_DOMAIN: mydomain.com
+
+.prep_go: &prep_go
+  before_script:
+    - export GL_URL=$(echo $CI_PROJECT_URL | awk -F/ '{print $3}')
+    - export GO_PROJECT_PATH="$GOPATH/src/$GL_URL/$CI_PROJECT_NAMESPACE"
+    - mkdir -p $GO_PROJECT_PATH
+    - ln -s $(pwd) $GO_PROJECT_PATH
+    - export GO_PROJECT_PATH="$GO_PROJECT_PATH/$CI_PROJECT_NAME"
+    - cd $GO_PROJECT_PATH
+
+stages:
+  - build
+  - dockerbuild
+  - review
+  - staging
+  - canary
+  - destroy-canary
+  - production
+  - taglatest
+
+go_build:
+  <<: *prep_go
+  stage: build
+  image: golang:1.11
+  script:
+    - go get github.com/golang/dep/cmd/dep
+    - dep ensure
+    - mkdir build
+    - CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o build/$BINARY_NAME ./...
+  artifacts:
+    paths:
+      - build/
+    expire_in: 1 week
+
+docker_build:
+  stage: dockerbuild
+  script:
+    - command build
+  only:
+    - branches
+
+review:
+  stage: review
+  dependencies: []
+  script:
+    - command deploy
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    url: http://$CI_ENVIRONMENT_SLUG.$KUBE_DOMAIN
+    on_stop: stop_review
+  only:
+    - branches
+  except:
+    - master
+
+stop_review:
+  stage: review
+  dependencies: []
+  variables:
+    GIT_STRATEGY: none
+  script:
+    - command destroy
+  environment:
+    name: review/$CI_COMMIT_REF_NAME
+    action: stop
+  when: manual
+  only:
+    - branches
+  except:
+    - master
+
+staging:
+  stage: staging
+  dependencies: []
+  script:
+    - command deploy
+  environment:
+    name: staging
+    url: http://staging.$KUBE_DOMAIN
+  only:
+    - master
+
+canary:
+  stage: canary
+  dependencies: []
+  script:
+    - command deploy
+  when: manual
+  only:
+    - master
+  allow_failure: true
+  environment:
+    name: production
+    url: http://$KUBE_DOMAIN
+
+destroy-canary:
+  stage: destroy-canary
+  dependencies: []
+  allow_failure: true
+  environment:
+    name: production  
+  script:
+    - command destroy-canary
+  when: manual
+  only:
+    - master
+
+production:
+  stage: production
+  dependencies: []
+  script:
+    - command deploy
+  environment:
+    name: production
+    url: http://$KUBE_DOMAIN
+  when: manual
+  allow_failure: false
+  only:
+    - master
+
+taglatest:
+  stage: taglatest
+  dependencies: []
+  allow_failure: false
+  script:
+    - command push
+  only:
+    - master
+

@@ -1,0 +1,17 @@
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: app-$CI_ENVIRONMENT_SLUG
+  namespace: $KUBE_NAMESPACE
+  labels:
+    app: $CI_ENVIRONMENT_SLUG
+spec:
+  rules:
+  - host: $CI_ENVIRONMENT_HOSTNAME
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: app-$CI_ENVIRONMENT_SLUG
+          servicePort: 80
